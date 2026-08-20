@@ -52,7 +52,7 @@ async function load() {
     updates.value = u.items
     artifacts.value = a.items
     rollouts.value = r.items
-    if (!selectedArtifact.value && artifacts.value.length) selectedArtifact.value = artifacts.value[0].id
+    if (!selectedArtifact.value && artifacts.value.length) selectedArtifact.value = artifacts.value[0]!.id
   } catch {
     error.value = 'Could not load update data.'
   } finally {
