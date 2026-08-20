@@ -12,6 +12,8 @@ import TabsContent from '@/components/ui/TabsContent.vue'
 import TelemetryPanel from '@/components/device/TelemetryPanel.vue'
 import FaultsAlarmsPanel from '@/components/device/FaultsAlarmsPanel.vue'
 import LogsPanel from '@/components/device/LogsPanel.vue'
+import LocationPanel from '@/components/device/LocationPanel.vue'
+import UpdatePanel from '@/components/device/UpdatePanel.vue'
 import OperationsPanel from '@/components/device/OperationsPanel.vue'
 
 const props = defineProps<{ id: string }>()
@@ -52,6 +54,8 @@ onMounted(async () => {
           <TabsTrigger value="telemetry">Telemetry</TabsTrigger>
           <TabsTrigger value="faults">Faults &amp; Alarms</TabsTrigger>
           <TabsTrigger value="logs">Logs</TabsTrigger>
+          <TabsTrigger value="location">Location</TabsTrigger>
+          <TabsTrigger value="updates">Updates</TabsTrigger>
           <TabsTrigger value="ops">Operations</TabsTrigger>
         </TabsList>
 
@@ -86,6 +90,12 @@ onMounted(async () => {
         </TabsContent>
         <TabsContent value="logs">
           <LogsPanel :device-id="device.id" />
+        </TabsContent>
+        <TabsContent value="location">
+          <LocationPanel :device-id="device.id" />
+        </TabsContent>
+        <TabsContent value="updates">
+          <UpdatePanel :device-id="device.id" />
         </TabsContent>
         <TabsContent value="ops">
           <OperationsPanel :device="device" @updated="device = $event" />

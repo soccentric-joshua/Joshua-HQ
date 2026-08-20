@@ -47,11 +47,3 @@ class BulkProvisionedDevice(BaseModel):
 
 class BulkProvisionOut(BaseModel):
     items: list[BulkProvisionedDevice]
-
-
-class LocationOut(BaseModel):
-    lat: float | None = None
-    lon: float | None = None
-    accuracy_m: float | None = None
-    source: str | None = None
-    recorded_at: datetime | None = None

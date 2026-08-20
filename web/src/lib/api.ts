@@ -9,8 +9,16 @@ import type {
   DeviceAlarmListResponse,
   DeviceCreateResponse,
   DeviceListResponse,
+  DeviceLocation,
+  DeviceLocationListResponse,
+  DeviceUpdateListResponse,
   FaultListResponse,
   LogBundleListResponse,
+  UpdateArtifact,
+  UpdateArtifactListResponse,
+  UpdateRollout,
+  UpdateRolloutDetail,
+  UpdateRolloutListResponse,
   User,
   UserRole,
 } from './types'
@@ -99,6 +107,31 @@ export const api = {
     takeNow: (deviceId: string) => request<Backup>(`/devices/${deviceId}/backups`, { method: 'POST' }),
     restore: (deviceId: string, backupId: string) =>
       request<{ ok: boolean }>(`/devices/${deviceId}/backups/${backupId}/restore`, { method: 'POST' }),
+  },
+  updates: {
+    listArtifacts: () => request<UpdateArtifactListResponse>('/update-artifacts'),
+    createArtifact: (body: {
+      version: string
+      target_board_rev: string
+      storage_url: string
+      checksum_sha256: string
+    }) => request<UpdateArtifact>('/update-artifacts', { method: 'POST', body: JSON.stringify(body) }),
+    listRollouts: () => request<UpdateRolloutListResponse>('/update-rollouts'),
+    getRollout: (id: string) => request<UpdateRolloutDetail>(`/update-rollouts/${id}`),
+    startRollout: (id: string) =>
+      request<UpdateRollout>(`/update-rollouts/${id}/start`, { method: 'POST' }),
+    createRollout: (body: {
+      artifact_id: string
+      target?: string
+      target_selector?: Record<string, unknown>
+    }) => request<UpdateRollout>('/update-rollouts', { method: 'POST', body: JSON.stringify(body) }),
+    deviceUpdates: (deviceId: string) =>
+      request<DeviceUpdateListResponse>(`/devices/${deviceId}/updates`),
+  },
+  location: {
+    latest: (deviceId: string) => request<DeviceLocation>(`/devices/${deviceId}/location`),
+    history: (deviceId: string) =>
+      request<DeviceLocationListResponse>(`/devices/${deviceId}/location/history`),
   },
   users: {
     list: () => request<User[]>('/users'),

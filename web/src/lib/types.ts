@@ -138,3 +138,79 @@ export interface BackupListResponse {
   items: Backup[]
   page: Page
 }
+
+export type RolloutTarget = 'all' | 'device_group' | 'specific_devices'
+export type RolloutStatus = 'pending' | 'in_progress' | 'completed' | 'failed'
+export type DeviceRolloutStatus = 'pending' | 'applying' | 'succeeded' | 'failed'
+
+export interface UpdateArtifact {
+  id: string
+  version: string
+  target_board_rev: string
+  storage_url: string
+  checksum_sha256: string
+  created_at: string
+}
+
+export interface UpdateArtifactListResponse {
+  items: UpdateArtifact[]
+  page: Page
+}
+
+export interface UpdateRollout {
+  id: string
+  artifact_id: string
+  target: RolloutTarget
+  target_selector: Record<string, unknown>
+  status: RolloutStatus
+  started_at: string | null
+  completed_at: string | null
+}
+
+export interface UpdateRolloutListResponse {
+  items: UpdateRollout[]
+  page: Page
+}
+
+export interface RolloutDevice {
+  device_id: string
+  status: DeviceRolloutStatus
+  applied_at: string | null
+  error: string | null
+}
+
+export interface UpdateRolloutDetail {
+  rollout: UpdateRollout
+  artifact: UpdateArtifact
+  devices: RolloutDevice[]
+}
+
+export interface DeviceUpdate {
+  rollout_id: string
+  version: string
+  status: DeviceRolloutStatus
+  applied_at: string | null
+  error: string | null
+}
+
+export interface DeviceUpdateListResponse {
+  items: DeviceUpdate[]
+  page: Page
+}
+
+export interface DeviceLocation {
+  id: string
+  device_id: string
+  latitude: number
+  longitude: number
+  altitude_m: number | null
+  accuracy_m: number | null
+  source: string | null
+  captured_at: string
+  created_at: string
+}
+
+export interface DeviceLocationListResponse {
+  items: DeviceLocation[]
+  page: Page
+}

@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, UTC
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
@@ -10,9 +10,13 @@ from app.config import get_settings
 from app.db.deps import get_db
 from app.models.device import Device
 from app.models.device_credential import DeviceCredential
-from app.models.enums import CredentialKind, PairingState, UserRole
+from app.models.enums import CommandKind, CredentialKind, PairingState, UserRole
+from app.models.pending_command import PendingCommand
 from app.schemas.common import Page
 from app.schemas.device import (
+    BulkProvisionCreate,
+    BulkProvisionOut,
+    BulkProvisionedDevice,
     DeviceCreate,
     DeviceCreateOut,
     DeviceListOut,
@@ -20,6 +24,7 @@ from app.schemas.device import (
 )
 from app.services import audit
 from app.services.credentials import generate_token, hash_token
+from app.services.device_scope import get_tenant_device_or_404
 from app.services.tenant_repo import TenantContext, TenantRepo
 
 router = APIRouter(prefix="/devices", tags=["devices"])
@@ -180,3 +185,102 @@ async def revoke_credential(
     await audit.record(db, ctx, "device.credential.revoke", target_device_id=device.id)
     await db.commit()
     return {"ok": True}
+
+
+@router.post("/bulk", response_model=BulkProvisionOut, status_code=status.HTTP_201_CREATED)
+async def bulk_provision(
+    body: BulkProvisionCreate,
+    db: AsyncSession = Depends(get_db),
+    ctx: TenantContext = Depends(require_role(UserRole.operator)),
+):
+    """Provision many devices at once, issuing a fresh pairing token per device.
+
+    Provisioning means creating a `pending` device record the operator can
+    hand (name + token) to someone who physically has the hardware, mirroring
+    the single-device create flow for fleets. Each device gets its own unique
+    token, so onboarding one unit never leaks another's credential.
+    """
+    if not body.names:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "names must not be empty")
+
+    settings = get_settings()
+    repo = TenantRepo(db, ctx)
+    now = datetime.now(UTC)
+    items: list[BulkProvisionedDevice] = []
+
+    for name in body.names:
+        device = repo.stamp_tenant(Device(name=name))
+        db.add(device)
+        await db.flush()
+        raw_token = generate_token()
+        db.add(
+            DeviceCredential(
+                device_id=device.id,
+                kind=CredentialKind.pairing,
+                token_hash=hash_token(raw_token),
+                expires_at=now + timedelta(seconds=settings.pairing_token_ttl_seconds),
+            )
+        )
+        items.append(
+            BulkProvisionedDevice(
+                device=DeviceOut.model_validate(device), pairing_token=raw_token
+            )
+        )
+
+    await audit.record(
+        db, ctx, "device.bulk_provision", payload={"names": body.names}
+    )
+    await db.commit()
+    return BulkProvisionOut(items=items)
+
+
+@router.post("/{device_id}/disable", response_model=DeviceOut)
+async def disable_device(
+    device_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: TenantContext = Depends(require_role(UserRole.admin)),
+):
+    """Immediately refuse the device's connection even with a valid credential.
+
+    The device model already models `disabled` as a pairing state; this is the
+    operator-visible endpoint that flips it. The gateway refuses connections
+    (and tears down live ones) for any device in the `disabled` state, so the
+    effect is immediate.
+    """
+    repo = TenantRepo(db, ctx)
+    device = await repo.get_or_404(Device, device_id)
+    if device is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "device not found")
+
+    device.pairing_state = PairingState.disabled
+    device.online = False
+    await audit.record(db, ctx, "device.disable", target_device_id=device.id)
+    await db.commit()
+    await db.refresh(device)
+    return DeviceOut.model_validate(device)
+
+
+@router.post("/{device_id}/factory-reset")
+async def factory_reset(
+    device_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    ctx: TenantContext = Depends(require_role(UserRole.admin)),
+):
+    """Queue a factory-reset command for the device.
+
+    Wipes local state on the device and requires re-pairing. Like other ops
+    commands, this is handed to agent-gateway via PendingCommand on the
+    device's next heartbeat (cross-process handoff, ARCHITECTURE.md §2) rather
+    than pushed synchronously.
+    """
+    await get_tenant_device_or_404(db, ctx, device_id)
+
+    command_id = f"factory_reset:{uuid4()}"
+    db.add(
+        PendingCommand(
+            device_id=device_id, command_id=command_id, kind=CommandKind.factory_reset
+        )
+    )
+    await audit.record(db, ctx, "device.factory_reset.request", target_device_id=device_id)
+    await db.commit()
+    return {"ok": True, "command_id": command_id}
