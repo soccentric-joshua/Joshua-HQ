@@ -3,6 +3,9 @@ import os
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 
+# Register every ORM model on Base.metadata so drop_all/create_all fully reset
+# the shared test DB even if only a subset of routers/models were imported.
+import app.models  # noqa: F401
 from app.db.base import Base, configure_for_tests, get_engine
 from app.main import create_app
 

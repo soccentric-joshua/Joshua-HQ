@@ -6,6 +6,26 @@ own feature branch. See the master repo's `Joshua-Loop-Orchestration-Spec-v2.md`
 
 Entries written by hand are fine; the engine inserts directly under this header.
 
+## 2026-08-20 — [complete-hq] Complete HQ: gate green, docs, alarm-list restore
+- **Gate:** regenerated the stale `agent-gateway/joshuahq/agent_pb2.py`/`_grpc.py`
+  from `proto/joshuahq/agent.proto` — the committed files were generated from the
+  old `archeshq/agent` template and failed to import (`couldn't resolve
+  '.joshuahq.agent.AgentFrame'`). No `archeshq` references remain.
+- **Gate:** registered `DeviceLocation` in `api/app/models/__init__.py` and made
+  both test `_db` fixtures import `app.models`, so `Base.metadata` is always
+  complete. Without this, the API suite left `device_location` in the shared
+  test DB and the gateway suite's `drop_all` failed (FK on `device`). api+gateway
+  now run cleanly in sequence (full gate 8/8).
+- **Feature:** restored the lost device-scoped rule-based alarm list as
+  `GET /devices/{device_id}/rule-alarms` (distinct from the device-reported
+  `alarms` table). Added `AlarmListOut` schema; wired the API client
+  `api.alarms.listRuleAlarms`; added a rule-based alarms section to
+  `FaultsAlarmsPanel.vue` with Acknowledge/Resolve. Tests: api 46, web 9.
+- **Docs:** created `PLAN.md`, `ARCHITECTURE.md`, `IMPLEMENTATION_PLAN.md` and
+  flipped the README status from **planning** to **implemented**.
+- **Verified:** `./.claude/validate.sh full` passes 8/8 (lint, api 46,
+  gateway 13, web 9, single alembic head, no proto leakage).
+
 ## 2026-08-19 — [sync-feature-complete] Close the fleet-operation gaps to feature-complete
 - Backend: mounted the previously-implemented-but-unregistered `backups` router (backup/restore was reachable in the UI but 404'd on the API).
 - Backend: added `POST /devices/{device_id}/disable` (flips pairing_state to `disabled`, drops `online`) and `POST /devices/{device_id}/factory-reset` (queues a `factory_reset` PendingCommand) — both were already wired in the web UI but unimplemented server-side.

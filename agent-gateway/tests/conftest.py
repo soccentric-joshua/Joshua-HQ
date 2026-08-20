@@ -3,6 +3,12 @@ import os
 import grpc
 import pytest_asyncio
 
+# Register every ORM model on Base.metadata so drop_all/create_all can fully
+# reset the shared test database regardless of which runtime modules (gateway
+# handlers, api routers, ...) happened to be imported by the suite. Without
+# this, a table the gateway itself never touches (e.g. device_location) is
+# left behind by a previous suite and blocks dropping `device`.
+import app.models  # noqa: F401
 from app.db.base import Base, configure_for_tests, get_engine, get_session_factory
 from joshuahq.agent_pb2_grpc import AgentLinkStub, add_AgentLinkServicer_to_server
 from gateway.servicer import AgentLinkServicer

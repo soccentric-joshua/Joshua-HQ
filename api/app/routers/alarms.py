@@ -11,7 +11,12 @@ from app.models.alarm import Alarm, AlarmRule
 from app.models.device import Device
 from app.models.device_alarm import DeviceAlarm
 from app.models.enums import AlarmState, UserRole
-from app.schemas.alarm import AlarmOut, AlarmRuleCreate, AlarmRuleOut
+from app.schemas.alarm import (
+    AlarmListOut,
+    AlarmOut,
+    AlarmRuleCreate,
+    AlarmRuleOut,
+)
 from app.schemas.common import Page
 from app.schemas.device_alarm import DeviceAlarmIn, DeviceAlarmListOut, DeviceAlarmOut
 from app.services import audit
@@ -19,6 +24,7 @@ from app.services.device_scope import get_tenant_device_or_404
 from app.services.tenant_repo import TenantContext, TenantRepo
 
 device_alarms_router = APIRouter(prefix="/devices/{device_id}/alarms", tags=["alarms"])
+rule_alarms_router = APIRouter(prefix="/devices/{device_id}/rule-alarms", tags=["alarms"])
 alarms_router = APIRouter(prefix="/alarms", tags=["alarms"])
 alarm_rules_router = APIRouter(prefix="/alarm-rules", tags=["alarms"])
 
@@ -137,6 +143,35 @@ async def _get_tenant_alarm_or_404(db: AsyncSession, ctx: TenantContext, alarm_i
     if row is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "alarm not found")
     return row
+
+
+@rule_alarms_router.get("", response_model=AlarmListOut)
+async def list_rule_alarms_for_device(
+    device_id: UUID,
+    limit: int = Query(default=100, le=500),
+    offset: int = Query(default=0, ge=0),
+    db: AsyncSession = Depends(get_db),
+    ctx: TenantContext = Depends(require_role(UserRole.viewer)),
+):
+    """List the rule-based ``Alarm`` rows raised for a device (newest first).
+
+    Distinct from ``GET /devices/{device_id}/alarms``, which returns rows from
+    the device-reported ``alarms`` table. Rule-based alarms are produced when a
+    fault/telemetry condition matches an ``AlarmRule`` (see ``Alarm`` model) and
+    are the rows an operator acknowledges/resolves by ID via
+    ``POST /alarms/{alarm_id}/acknowledge`` and ``POST /alarms/{alarm_id}/resolve``.
+    """
+    await get_tenant_device_or_404(db, ctx, device_id)
+
+    stmt = select(Alarm).where(Alarm.device_id == device_id)
+    total = (await db.execute(select(func.count()).select_from(stmt.subquery()))).scalar_one()
+    stmt = stmt.order_by(Alarm.triggered_at.desc()).limit(limit).offset(offset)
+    rows = (await db.execute(stmt)).scalars().all()
+
+    return AlarmListOut(
+        items=[AlarmOut.model_validate(r) for r in rows],
+        page=Page(total=total, limit=limit, offset=offset),
+    )
 
 
 @alarms_router.post("/{alarm_id}/acknowledge", response_model=AlarmOut)

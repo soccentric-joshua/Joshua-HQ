@@ -1,5 +1,6 @@
 import type {
   Alarm,
+  AlarmListResponse,
   AlarmRule,
   AuditLogListResponse,
   Backup,
@@ -87,6 +88,8 @@ export const api = {
   alarms: {
     listForDevice: (deviceId: string) =>
       request<DeviceAlarmListResponse>(`/devices/${deviceId}/alarms`),
+    listRuleAlarms: (deviceId: string) =>
+      request<AlarmListResponse>(`/devices/${deviceId}/rule-alarms`),
     acknowledge: (id: string) => request<Alarm>(`/alarms/${id}/acknowledge`, { method: 'POST' }),
     resolve: (id: string) => request<Alarm>(`/alarms/${id}/resolve`, { method: 'POST' }),
     clear: (deviceId: string, alarmId: string) =>

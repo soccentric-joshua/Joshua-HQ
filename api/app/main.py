@@ -67,6 +67,7 @@ def create_app() -> FastAPI:
     app.include_router(update.rollout_router)
     app.include_router(update.device_updates_router)
     app.include_router(alarms.device_alarms_router)
+    app.include_router(alarms.rule_alarms_router)
     app.include_router(alarms.alarms_router)
     app.include_router(alarms.alarm_rules_router)
     app.include_router(logs.router)

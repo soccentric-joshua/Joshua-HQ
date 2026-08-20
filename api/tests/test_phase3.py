@@ -130,6 +130,75 @@ async def test_acknowledge_and_resolve_alarm(client, db_session):
     assert resp.json()["state"] == "resolved"
 
 
+async def test_rule_alarm_list_for_device_is_scoped(client, db_session):
+    """Restored device-scoped list for rule-based Alarm rows (distinct from the
+    device-reported ``alarms`` table).
+
+    A viewer can list the device's rule-based alarms newest-first and an
+    operator can ack/resolve them by ID. Cross-tenant devices are invisible.
+    """
+    tenant = await make_tenant(db_session)
+    admin = await make_user(db_session, tenant, UserRole.admin)
+    device = await _device(db_session, tenant)
+
+    rule = AlarmRule(tenant_id=tenant.id, name="r", condition={"kind": "fault_code"})
+    db_session.add(rule)
+    await db_session.flush()
+    alarms = [
+        Alarm(
+            alarm_rule_id=rule.id,
+            device_id=device.id,
+            state=AlarmState.active,
+            triggered_at=datetime.now(UTC),
+        ),
+        Alarm(
+            alarm_rule_id=rule.id,
+            device_id=device.id,
+            state=AlarmState.resolved,
+            triggered_at=datetime.now(UTC) - timedelta(hours=1),
+        ),
+    ]
+    db_session.add_all(alarms)
+
+    # A rule alarm for another tenant's device must not appear in this list.
+    other = await make_tenant(db_session)
+    other_device = await _device(db_session, other)
+    other_rule = AlarmRule(
+        tenant_id=other.id, name="other", condition={"kind": "fault_code"}
+    )
+    db_session.add(other_rule)
+    await db_session.flush()
+    db_session.add(
+        Alarm(
+            alarm_rule_id=other_rule.id,
+            device_id=other_device.id,
+            state=AlarmState.active,
+            triggered_at=datetime.now(UTC),
+        )
+    )
+    await db_session.commit()
+
+    login_as(client, admin)
+    resp = await client.get(f"/devices/{device.id}/rule-alarms")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["page"]["total"] == 2
+    # Newest (active) first.
+    assert body["items"][0]["state"] == AlarmState.active.value
+    assert body["items"][1]["state"] == AlarmState.resolved.value
+    listed_id = body["items"][0]["id"]
+    assert listed_id == str(alarms[0].id)
+
+    # The operator can acknowledge a rule-based alarm returned by the list.
+    ack = await client.post(f"/alarms/{listed_id}/acknowledge")
+    assert ack.status_code == 200
+    assert ack.json()["state"] == AlarmState.acknowledged.value
+
+    # A device of another tenant is not visible (404, no existence leak).
+    hidden = await client.get(f"/devices/{other_device.id}/rule-alarms")
+    assert hidden.status_code == 404
+
+
 async def test_log_bundle_list_and_download_url(client, db_session):
     tenant = await make_tenant(db_session)
     admin = await make_user(db_session, tenant, UserRole.admin)

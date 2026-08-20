@@ -2,7 +2,7 @@
 import { onMounted, ref, watch } from 'vue'
 import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth'
-import type { DeviceAlarm, Fault } from '@/lib/types'
+import type { Alarm, DeviceAlarm, Fault } from '@/lib/types'
 import Badge from '@/components/ui/Badge.vue'
 import Button from '@/components/ui/Button.vue'
 import Card from '@/components/ui/Card.vue'
@@ -12,6 +12,7 @@ const auth = useAuthStore()
 
 const faults = ref<Fault[]>([])
 const alarms = ref<DeviceAlarm[]>([])
+const ruleAlarms = ref<Alarm[]>([])
 const loading = ref(true)
 const error = ref('')
 
@@ -31,12 +32,14 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const [f, a] = await Promise.all([
+    const [f, a, r] = await Promise.all([
       api.faults.list(props.deviceId),
       api.alarms.listForDevice(props.deviceId),
+      api.alarms.listRuleAlarms(props.deviceId),
     ])
     faults.value = f.items
     alarms.value = a.items
+    ruleAlarms.value = r.items
   } catch {
     error.value = 'Could not load faults and alarms.'
   } finally {
@@ -49,6 +52,16 @@ async function clearAlarm(alarmId: string) {
   await load()
 }
 
+async function acknowledgeRuleAlarm(alarmId: string) {
+  await api.alarms.acknowledge(alarmId)
+  await load()
+}
+
+async function resolveRuleAlarm(alarmId: string) {
+  await api.alarms.resolve(alarmId)
+  await load()
+}
+
 watch(() => props.deviceId, load)
 onMounted(load)
 </script>
@@ -56,7 +69,31 @@ onMounted(load)
 <template>
   <div v-if="loading" class="text-sm text-muted-foreground">Loading…</div>
   <div v-else-if="error" class="text-sm text-danger">{{ error }}</div>
-  <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-2">
+  <div v-else class="grid grid-cols-1 gap-6 lg:grid-cols-3">
+    <div>
+      <h3 class="mb-2 text-sm font-semibold">Rule-based alarms</h3>
+      <Card v-if="ruleAlarms.length === 0" class="p-4 text-sm text-muted-foreground">
+        No rule-based alarms.
+      </Card>
+      <div v-else class="space-y-2">
+        <Card v-for="r in ruleAlarms" :key="r.id" class="p-3">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <Badge :tone="alarmTone(r.state)">{{ r.state }}</Badge>
+              <span class="text-sm text-muted-foreground">
+                {{ new Date(r.triggered_at).toLocaleString() }}
+              </span>
+            </div>
+            <div v-if="auth.hasRole('operator') && r.state === 'active'" class="flex gap-1">
+              <Button size="sm" variant="secondary" @click="acknowledgeRuleAlarm(r.id)">Acknowledge</Button>
+              <Button size="sm" variant="secondary" @click="resolveRuleAlarm(r.id)">Resolve</Button>
+            </div>
+          </div>
+          <p class="mt-1 text-xs text-muted-foreground">rule {{ r.alarm_rule_id }}</p>
+        </Card>
+      </div>
+    </div>
+
     <div>
       <h3 class="mb-2 text-sm font-semibold">Alarms</h3>
       <Card v-if="alarms.length === 0" class="p-4 text-sm text-muted-foreground">No alarms.</Card>
