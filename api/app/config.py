@@ -1,6 +1,19 @@
 from functools import lru_cache
 
+from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+# Development-only default credentials baked into this file. They are safe ONLY
+# when `env == dev` on a disposable local stack. Any of these values reaching a
+# non-dev environment is refused at startup.
+_DEV_SECRET_DEFAULTS = {
+    "database_url": "postgresql+asyncpg://joshuahq:joshuahq@localhost:5432/joshuahq",
+    "oidc_client_secret": "dev-secret-change-me",
+    "session_secret_key": "dev-only-change-me-in-every-real-deployment",
+    "s3_access_key": "joshuahq",
+    "s3_secret_key": "joshuahq-dev-secret",
+}
 
 
 class Settings(BaseSettings):
@@ -47,6 +60,30 @@ class Settings(BaseSettings):
     pairing_token_ttl_seconds: int = 15 * 60
 
     cors_allow_origins: list[str] = ["http://localhost:5173"]
+
+    @model_validator(mode="after")
+    def _refuse_dev_default_secrets_outside_dev(self) -> "Settings":
+        """Fail fast if a development-only secret default is left in place in a
+        non-development environment.
+
+        Every credential in `_SECRET_DEFAULTS` is a dev-only value. A production/
+        staging deployment must override them via env vars / a generated secret
+        file; starting up with the defaults would expose the stack.
+        """
+        if self.env in ("dev", "development"):
+            return self
+        offenders = [
+            name
+            for name, default in _DEV_SECRET_DEFAULTS.items()
+            if getattr(self, name, None) == default
+        ]
+        if offenders:
+            raise ValueError(
+                "refusing to start: non-dev environment with development-only "
+                f"credentials ({', '.join(sorted(offenders))}). Override them via "
+                "JOSHUAHQ_* env vars or a generated local secret file."
+            )
+        return self
 
 
 @lru_cache

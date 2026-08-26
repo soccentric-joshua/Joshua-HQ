@@ -5,7 +5,9 @@ services:
       POSTGRES_USER: joshuahq
       POSTGRES_PASSWORD: joshuahq
       POSTGRES_DB: joshuahq
-    ports: ["5432:5432"]
+    # Bind to loopback only: this is a dev-only stack and must never be
+    # reachable on host interfaces without a reverse proxy + TLS.
+    ports: ["127.0.0.1:5432:5432"]
     volumes: ["joshuahq-pg-data:/var/lib/postgresql/data"]
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U joshuahq"]
@@ -14,12 +16,14 @@ services:
       retries: 20
 
   minio:
-    image: minio/minio:latest
+    # Pinned to an immutable release tag (not `latest`) so re-creating the
+    # stack is reproducible. Bump deliberately and re-test.
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: joshuahq
       MINIO_ROOT_PASSWORD: joshuahq-dev-secret
-    ports: ["9000:9000", "9001:9001"]
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
     volumes: ["joshuahq-minio-data:/data"]
     healthcheck:
       test: ["CMD", "mc", "ready", "local"]
@@ -29,7 +33,7 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports: ["6379:6379"]
+    ports: ["127.0.0.1:6379:6379"]
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -50,7 +54,7 @@ services:
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
       KC_HEALTH_ENABLED: "true"
-    ports: ["8081:8080"]  # host 8081 -- 8080 is commonly taken by other local services
+    ports: ["127.0.0.1:8081:8080"]  # host 8081 -- 8080 is commonly taken by other local services
     volumes:
       - "./keycloak/realm-joshuahq.json:/opt/keycloak/data/import/realm-joshuahq.json:ro"
       # Persists Keycloak's embedded H2 DB (users, sessions, client config)
