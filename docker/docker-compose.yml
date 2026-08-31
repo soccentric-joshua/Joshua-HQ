@@ -1,0 +1,104 @@
+# Joshua-HQ — full deployment stack.
+#
+# Stateful services (postgres, minio, redis, keycloak) are also declared here
+# so a single `docker compose up` brings up the whole HQ. Production requires
+# secrets to be supplied via the environment (see app/config.py — the services
+# fail closed unless JOSHUAHQ_ENV=production and real secrets are set).
+#
+# Usage:  docker compose -f docker/docker-compose.yml --env-file .env up -d
+name: joshuahq
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${JOSHUAHQ_DB_USER:-joshuahq}
+      POSTGRES_PASSWORD: ${JOSHUAHQ_DB_PASSWORD:-joshuahq}
+      POSTGRES_DB: ${JOSHUAHQ_DB_NAME:-joshuahq}
+    volumes:
+      - joshuahq-pg-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${JOSHUAHQ_S3_ACCESS_KEY:-joshuahq}
+      MINIO_ROOT_PASSWORD: ${JOSHUAHQ_S3_SECRET_KEY:-joshuahq-dev-secret}
+    volumes:
+      - joshuahq-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    environment: &api-env
+      JOSHUAHQ_ENV: ${JOSHUAHQ_ENV:-production}
+      JOSHUAHQ_DATABASE_URL: postgresql+asyncpg://${ACADIAQ_DB_USER:-joshuahq}:${ACADIAQ_DB_PASSWORD:-joshuahq}@postgres:5432/${ACADIAQ_DB_NAME:-joshuahq}
+      JOSHUAHQ_REDIS_URL: redis://redis:6379/0
+      JOSHUAHQ_S3_ENDPOINT_URL: http://minio:9000
+      JOSHUAHQ_S3_ACCESS_KEY: ${JOSHUAHQ_S3_ACCESS_KEY:-joshuahq}
+      JOSHUAHQ_S3_SECRET_KEY: ${JOSHUAHQ_S3_SECRET_KEY:-joshuahq-dev-secret}
+      JOSHUAHQ_S3_BUCKET: ${JOSHUAHQ_S3_BUCKET:-joshuahq}
+      JOSHUAHQ_OIDC_ISSUER: ${JOSHUAHQ_OIDC_ISSUER:?set JOSHUAHQ_OIDC_ISSUER}
+      JOSHUAHQ_OIDC_CLIENT_ID: ${JOSHUAHQ_OIDC_CLIENT_ID:-joshuahq-api}
+      JOSHUAHQ_OIDC_CLIENT_SECRET: ${JOSHUAHQ_OIDC_CLIENT_SECRET:?set JOSHUAHQ_OIDC_CLIENT_SECRET}
+      JOSHUAHQ_SESSION_SECRET_KEY: ${JOSHUAHQ_SESSION_SECRET_KEY:?set JOSHUAHQ_SESSION_SECRET_KEY}
+      JOSHUAHQ_CORS_ALLOW_ORIGINS: ${JOSHUAHQ_CORS_ALLOW_ORIGINS:-http://localhost:8080}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    ports:
+      - "${JOSHUAHQ_API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    command: python -m gateway.server
+    environment: *api-env
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "${JOSHUAHQ_GATEWAY_PORT:-50051}:50051"
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.web
+    depends_on:
+      - api
+    ports:
+      - "${JOSHUAHQ_WEB_PORT:-8080}:80"
+
+volumes:
+  joshuahq-pg-data:
+  joshuahq-minio-data:
